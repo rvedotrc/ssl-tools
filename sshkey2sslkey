@@ -1,0 +1,104 @@
+#!/usr/bin/env ruby
+# vi: set ts=4 sw=4 :
+
+# Usage: invoke sshkey2sslkey without arguments.
+# It reads standard input, looking for lines which look like ssh rsa/dsa
+# public keys.  For each public key thus found it produces that same key, but
+# in openssl format, on standard output.
+#
+# For example:
+# cat ~/.ssh/id_dsa.pub | ./sshkey2sslkey | openssl dsa -pubin -noout -text
+# cat ~/.ssh/id_rsa.pub | ./sshkey2sslkey | openssl rsa -pubin -noout -text
+
+require 'openssl'
+
+def bytes_to_bignum(bytes)
+    bytes.unpack("C*").inject(0) {|a,b| a*256+b }
+end
+
+def unpack_ssh_key(base64_key_material, expected_type, expected_count)
+    key_material,_ = base64_key_material.unpack "m"
+
+    values = []
+    until key_material.empty?
+      l,n = key_material.unpack "Na*"
+      v,n = n.unpack "a#{l}a*"
+      key_material = n
+      values << v
+    end
+
+    type = values.first
+    type == expected_type or raise "Expected type #{expected_type.inspect}, got #{type.inspect}"
+
+    values.count == expected_count or raise "Expected #{expected_count} values, got #{values.count}"
+
+    values
+end
+
+def do_dss(base64_key_material)
+    type, p, q, g, pub = unpack_ssh_key base64_key_material, "ssh-dss", 5
+
+    p(  type: type,
+        p:    p.unpack("H*").first,
+        q:    q.unpack("H*").first,
+        g:    g.unpack("H*").first,
+        pub:  pub.unpack("H*").first,
+    ) if false
+
+    dsa_key = OpenSSL::ASN1::Sequence.new [
+        OpenSSL::ASN1::Sequence.new([
+            OpenSSL::ASN1::ObjectId.new("dsaEncryption"),
+            OpenSSL::ASN1::Sequence.new([
+                OpenSSL::ASN1::Integer.new(bytes_to_bignum(p)),
+                OpenSSL::ASN1::Integer.new(bytes_to_bignum(q)),
+                OpenSSL::ASN1::Integer.new(bytes_to_bignum(g)),
+            ])
+        ]),
+        OpenSSL::ASN1::BitString.new(
+            OpenSSL::ASN1::Integer.new(bytes_to_bignum(pub)).to_der
+        )
+    ]
+
+    puts "-----BEGIN PUBLIC KEY-----"
+    puts [dsa_key.to_der].pack "m"
+    puts "-----END PUBLIC KEY-----"
+end
+
+def do_rsa(base64_key_material)
+    type, public_exponent, modulus = unpack_ssh_key base64_key_material, "ssh-rsa", 3
+
+    p(  type:            type,
+        public_exponent: public_exponent.unpack("H*").first,
+        modulus:         modulus.unpack("H*").first,
+    ) if false
+
+    rsa_key = OpenSSL::ASN1::Sequence.new [
+        OpenSSL::ASN1::Sequence.new([
+            OpenSSL::ASN1::ObjectId.new("rsaEncryption"),
+            OpenSSL::ASN1::Null.new(nil)
+        ]),
+        OpenSSL::ASN1::BitString.new(
+            OpenSSL::ASN1::Sequence.new([
+                OpenSSL::ASN1::Integer.new(bytes_to_bignum(modulus)),
+                OpenSSL::ASN1::Integer.new(bytes_to_bignum(public_exponent)),
+            ]).to_der
+        )
+    ]
+
+    puts "-----BEGIN PUBLIC KEY-----"
+    puts [rsa_key.to_der].pack "m"
+    puts "-----END PUBLIC KEY-----"
+end
+
+$stdin.lines.each do |l|
+    case l
+    when /ssh-dss (\S+)/
+        do_dss $1
+    when /ssh-rsa (\S+)/
+        do_rsa $1
+    else
+        $stderr.puts "Ignoring '#{l}'"
+    end
+end
+
+# eof convert-authkey-to-sslkey
