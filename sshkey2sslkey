@@ -90,7 +90,7 @@ def do_rsa(base64_key_material)
     puts "-----END PUBLIC KEY-----"
 end
 
-$stdin.lines.each do |l|
+$stdin.each_line do |l|
     case l
     when /ssh-dss (\S+)/
         do_dss $1
