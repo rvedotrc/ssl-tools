@@ -1,0 +1,57 @@
+#!/usr/bin/env ruby
+
+if ARGV.empty?
+  $stderr.puts <<EOF
+
+Usage: for-each-cert CMD AND ARGS ... < CERTS
+
+for-each-cert reads standard input, and every time an END CERTIFICATE marker
+is seen, runs the given CMD AND ARGS with the data we just read from our
+standard input, as the command's standard input.  Thus the given command is
+run once for each certificate.
+
+Example: show the subject of each certificate:
+
+  for-each-cert openssl x509 -subject -noout < bundle.pem
+
+If any invocation of the CMD fails, then for-each-cert continues (until we
+read EOF on standard input), but then exits with status 1.
+
+EOF
+  exit 2
+end
+
+END_CERT = "-----END CERTIFICATE-----"
+
+errors = 0
+buffered = ""
+
+$stdin.each_line do |line|
+  buffered += line
+  if line.include? END_CERT
+    r,w = IO.pipe
+
+    t = Thread.new {
+      w.puts buffered
+      w.close
+    }
+
+    p = Process.spawn(
+      *ARGV,
+      :in => r,
+    )
+
+    r.close
+    t.join
+    Process.wait p
+
+    unless $?.success?
+      errors = errors + 1
+    end
+
+    buffered = ""
+  end
+end
+
+exit 1 if errors > 0
+exit 0
