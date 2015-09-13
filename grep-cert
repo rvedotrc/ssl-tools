@@ -10,10 +10,10 @@ OptionParser.new do |opts|
   opts.banner = "Usage: grep-cert [OPTIONS] [FILE ...]"
   opts.separator "\n"
 
-  opts.on("-b", "--begin-date [s]", "Select only certificates whose notBefore is >= this date ('now', if omitted)") do |s|
+  opts.on("-b", "--begin-date [s]", "Select only certificates whose notBefore is <= this date ('now', if omitted)") do |s|
     options[:begin_date] = s.nil? ? Time.now : DateTime.parse(s).to_time
   end
-  opts.on("-e", "--end-date [s]", "Select only certificates whose notAfter is <= this date ('now', if omitted)") do |s|
+  opts.on("-e", "--end-date [s]", "Select only certificates whose notAfter is >= this date ('now', if omitted)") do |s|
     options[:end_date] = s.nil? ? Time.now : DateTime.parse(s).to_time
   end
   opts.on("-i", "--issuer=s", "Select only certificates whose issuer matches the given pattern") do |s|
@@ -46,8 +46,8 @@ end.parse!
 def matches(cert, options)
   i = cert.issuer.to_s(OpenSSL::X509::Name::RFC2253)
   s = cert.subject.to_s(OpenSSL::X509::Name::RFC2253)
-  return false if options[:begin_date] and cert.not_before >= options[:begin_date]
-  return false if options[:end_date] and cert.not_after >= options[:end_date]
+  return false if options[:begin_date] and not cert.not_before <= options[:begin_date]
+  return false if options[:end_date] and not cert.not_after >= options[:end_date]
   return false if options[:issuer] and not i.match(options[:issuer])
   return false if options[:subject] and not s.match(options[:subject])
   return false if options[:self_signed] and i != s
